@@ -9,11 +9,18 @@
  * `./src/main.js` using webpack. This gives us some performance wins.
  */
 import path from 'path';
+import fs from 'fs';
+import sqlite3 from 'sqlite3';
+import { open } from 'sqlite';
 import { app, BrowserWindow, shell, ipcMain } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import log from 'electron-log';
+import { print } from 'pdf-to-printer';
+import stickerGenerator from './stickerGenerator';
 import MenuBuilder from './menu';
 import { resolveHtmlPath } from './util';
+
+// import {setDbPath, executeMany, executeQuery,executeScript} from 'sqlite-electron';
 
 class AppUpdater {
   constructor() {
@@ -29,6 +36,174 @@ ipcMain.on('ipc-example', async (event, arg) => {
   const msgTemplate = (pingPong: string) => `IPC test: ${pingPong}`;
   console.log(msgTemplate(arg));
   event.reply('ipc-example', msgTemplate('pong'));
+});
+
+ipcMain.handle('test', async (event, data, data2) => {
+  try {
+    console.log(`testing ipcMain${data}`);
+    console.log(`second data: ${data2}`);
+    return data;
+  } catch (error) {
+    return error;
+  }
+});
+
+// DB ipcMain
+
+const connectDB = async () => {
+  const dbfile = 'data.db';
+  if (fs.existsSync(`./assets/${dbfile}`)) {
+    return open({
+      filename: `./assets/${dbfile}`,
+      driver: sqlite3.Database,
+    });
+  }
+  // TODO: Create DB if do not exists
+  console.log('DB does not exist');
+};
+
+// DB providers
+
+ipcMain.handle('db-select-providers', async (event) => {
+  const db = await connectDB();
+  let Middle = [];
+  const result = await db.all('SELECT * FROM providers').then((values) => {
+    Middle = values;
+  });
+  return Middle;
+});
+
+ipcMain.handle('db-delete-provider', async (event, data) => {
+  const db = await connectDB();
+  const result = await db.run(`DELETE FROM providers WHERE id = ${data.id}`);
+  return result;
+});
+
+ipcMain.handle('db-insert-provider', async (event, data) => {
+  const db = await connectDB();
+  const result = await db.run(
+    'INSERT INTO providers (code, name, logo) VALUES (?, ?, ?)',
+    data.code,
+    data.name,
+    data.logo
+  );
+  return result;
+});
+
+ipcMain.handle('db-update-provider', async (event, data) => {
+  const db = await connectDB();
+  const result = await db.run(
+    'UPDATE providers SET name = ?, code = ? WHERE id = ?',
+    data.name,
+    data.code,
+    data.id
+  );
+  return result;
+});
+
+ipcMain.handle('db-search-providers', async (event, data) => {
+  const db = await connectDB();
+
+  let Middle = [];
+
+  if (data.name !== '')
+    await db
+      .all(
+        `SELECT id, name, code FROM providers WHERE name LIKE '${data.name}%';`
+      )
+      .then((values) => {
+        Middle = values;
+      });
+  return Middle;
+});
+
+// DB people
+
+ipcMain.handle('db-select-peoples', async (event) => {
+  const db = await connectDB();
+  let Middle = [];
+  await db.all('SELECT * FROM people').then((values) => {
+    Middle = values;
+  });
+  return Middle;
+});
+
+ipcMain.handle('db-delete-poeple', async (event, data) => {
+  const db = await connectDB();
+  const result = await db.run(`DELETE FROM people WHERE id = ${data.id}`);
+  return result;
+});
+
+ipcMain.handle('db-insert-people', async (event, data) => {
+  const db = await connectDB();
+  const result = await db.run(
+    'INSERT INTO people (location, name, photo, email) VALUES (?, ?, ?, ?)',
+    data.location,
+    data.name,
+    data.photo,
+    data.email
+  );
+  return result;
+});
+
+ipcMain.handle('db-update-people', async (event, data) => {
+  const db = await connectDB();
+  const result = await db.run(
+    'UPDATE people SET name = ?, location = ?, email = ? WHERE id = ?',
+    data.name,
+    data.location,
+    data.email,
+    data.id
+  );
+  return result;
+});
+
+ipcMain.handle('db-search-people', async (event, data) => {
+  const db = await connectDB();
+
+  let Middle = [];
+
+  if (data.name !== '')
+    await db
+      .all(
+        `SELECT id, name, location FROM people WHERE name LIKE '${data.name}%';`
+      )
+      .then((values) => {
+        Middle = values;
+      });
+  return Middle;
+});
+
+function base64_encode(file: string) {
+  // read binary data
+  const bitmap = fs.readFileSync(file);
+  // convert binary data to base64 encoded string
+  return new Buffer(bitmap).toString('base64');
+}
+
+ipcMain.handle('file-test', async (event, data) => {
+  // let middle = '';
+  fs.writeFile('./assets/print.pdf', data.file, (err) => {
+    if (err) return console.log(err);
+    console.log('print.pdf saved.');
+    print('./assets/print.pdf').then(console.log);
+    // middle = base64_encode('./assets/print.pdf');
+  });
+
+  // return middle;
+});
+
+ipcMain.handle('gen-n-print-sticker', async (event, data) => {
+  await stickerGenerator(
+    data.name,
+    data.location,
+    data.sender,
+    data.date,
+    data.code
+  ).then(() => {
+    print(`./assets/stickers/${data.code}.pdf`);
+  });
+
 });
 
 if (process.env.NODE_ENV === 'production') {

@@ -19,5 +19,9 @@ contextBridge.exposeInMainWorld('electron', {
     once(channel: Channels, func: (...args: unknown[]) => void) {
       ipcRenderer.once(channel, (_event, ...args) => func(...args));
     },
+    invoke(channel: Channels, ...args: unknown[]) {
+      console.log("invoke channel: ", channel)
+      return ipcRenderer.invoke(channel, ...args);
+    },
   },
 });
